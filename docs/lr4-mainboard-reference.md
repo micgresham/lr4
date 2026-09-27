@@ -97,6 +97,20 @@ The robot advertises only while in pairing mode: hold Connect about 3 s until th
 
 The cloud identity lives in NVS, not in the firmware image: root CA, device certificate and key, broker host and topics. The certificates cannot be read back over BLE.
 
+### Stock cloud settings
+
+The values the Whisker app writes at onboarding, recovered by whiskerless from a decoded capture of that app's BLE session. None is secret or per-robot, apart from the serial:
+
+| Setting | Value |
+| --- | --- |
+| Broker host | `a2wz9c6y6mikoy-ats.iot.us-east-1.amazonaws.com` (AWS IoT ATS, TLS 8883) |
+| Subscribe (CLOUD_ENDPOINT) | `prod/LR4/<serial>/command` |
+| Publish (DEVICE_ENDPOINT) | `prod/LR4/<serial>/activity`; the firmware derives `/state` from it |
+| Root CA | [Amazon Root CA 1](https://www.amazontrust.com/repository/AmazonRootCA1.pem), 1188 bytes, matching the capture |
+| Client id | the serial, via DEVICE_ID_SET |
+
+Writing these back over BLE restores cloud operation, as long as the robot still holds its factory certificate and key. Those cannot be read or reconstructed; only the Whisker app reissues them, which it does on every onboarding.
+
 The flash also holds a `pic_factory` partition, which whiskerless says is the complete factory PIC image including its bootloader. A full `esptool read_flash` of the 8 MB flash captures all of it. No complete dump of either chip has been published.
 
 ## Getting to the board

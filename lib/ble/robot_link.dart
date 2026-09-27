@@ -12,6 +12,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
+import '../protocol/cloud.dart';
 import '../protocol/messages.dart' as m;
 
 typedef Log = void Function(String line);
@@ -62,6 +63,24 @@ class ProvisioningConfig {
     }
   }
 
+  /// Whisker's own cloud settings: their AWS IoT endpoint and Amazon Root CA 1,
+  /// the same pair the Whisker app writes at onboarding.
+  ///
+  /// This restores the robot to the stock service only if its factory
+  /// certificate and key are still in place — nothing can read or rewrite those
+  /// except the Whisker app. It does not touch them.
+  ProvisioningConfig.whiskerCloud({
+    required String serial,
+    required String wifiSsid,
+    required String wifiPass,
+  }) : this(
+          serial: serial,
+          host: whiskerCloudHost,
+          caPem: amazonRootCa1,
+          wifiSsid: wifiSsid,
+          wifiPass: wifiPass,
+        );
+
   final String serial;
   final String host;
   final String caPem;
@@ -70,6 +89,9 @@ class ProvisioningConfig {
   final String? clientCert;
   final String? clientKey;
   final Duration wifiWait;
+
+  /// True when this points the robot back at Whisker's cloud.
+  bool get isWhiskerCloud => host == whiskerCloudHost;
 
   String get commandTopic => 'prod/LR4/$serial/command';
   // The firmware derives the /state sub-topic from the /activity endpoint.

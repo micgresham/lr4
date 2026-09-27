@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -56,8 +57,17 @@ class _ScanPageState extends State<ScanPage> {
 
   Future<void> _scan() async {
     try {
-      if (FlutterBluePlus.adapterStateNow != BluetoothAdapterState.on) {
+      // Only Android lets an app switch the radio on. Elsewhere the state starts
+      // as "unknown" until the OS reports it, so wait briefly for "on".
+      if (Platform.isAndroid && FlutterBluePlus.adapterStateNow == BluetoothAdapterState.off) {
         await FlutterBluePlus.turnOn();
+      }
+      final state = await FlutterBluePlus.adapterState
+          .firstWhere((s) => s == BluetoothAdapterState.on)
+          .timeout(const Duration(seconds: 5), onTimeout: () => FlutterBluePlus.adapterStateNow);
+      if (state != BluetoothAdapterState.on) {
+        _snack('Bluetooth is ${state.name}. Turn it on (and allow this app to use it), then retry.');
+        return;
       }
       setState(() => _results = []);
       // The robot advertises only its service UUID (no name) and only in pairing mode.
@@ -259,6 +269,57 @@ class _RobotPageState extends State<RobotPage> {
     });
   }
 
+  /// Put the robot back on Whisker's cloud, with the settings the Whisker app
+  /// writes. Only the CA, host and topics are restored; the robot's own
+  /// certificate is untouched and must still be the factory one.
+  Future<void> _restoreCloud() async {
+    if (_ssid.text.isEmpty) {
+      _add('Pick a WiFi network first.');
+      return;
+    }
+    final ProvisioningConfig cfg;
+    try {
+      cfg = ProvisioningConfig.whiskerCloud(
+        serial: _serial.text,
+        wifiSsid: _ssid.text,
+        wifiPass: _pass.text,
+      );
+    } catch (e) {
+      final message = e is ArgumentError ? '${e.message}' : '$e';
+      _add('ERROR: $message');
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Restore Whisker cloud?'),
+        content: Text('Serial: ${cfg.serial}\n'
+            'WiFi: ${cfg.wifiSsid}\n'
+            'Broker: ${cfg.host}\n'
+            'Topics: prod/LR4/${cfg.serial}/…\n'
+            'Root CA: Amazon Root CA 1\n\n'
+            'This writes the same settings the Whisker app writes at setup. It works only if the '
+            'robot still has its factory certificate, which this app never replaces unless you '
+            'asked it to.\n\n'
+            'If the robot does not come back online, run setup in the Whisker app: that reissues '
+            'the certificate too.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Restore')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('ssid', cfg.wifiSsid);
+    await prefs.setString('serial', cfg.serial);
+    await _run('Restore cloud', () async {
+      await link.provision(cfg);
+      _add('✅ Pointed back at Whisker. It should appear in the Whisker app once it reconnects.');
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final busy = _busy != null || !_connected;
@@ -337,6 +398,20 @@ class _RobotPageState extends State<RobotPage> {
               child: FilledButton(onPressed: busy ? null : _provision, child: const Text('Provision to my broker')),
             ),
           ]),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: busy ? null : _restoreCloud,
+            icon: const Icon(Icons.cloud_sync),
+            label: const Text('Restore Whisker cloud settings'),
+          ),
+          const Padding(
+            padding: EdgeInsets.only(top: 4),
+            child: Text(
+              'Writes Whisker\'s own broker, topics and root CA — the same values their app writes. '
+              'Needs the serial. The robot must still hold its factory certificate.',
+              style: TextStyle(fontSize: 12),
+            ),
+          ),
           const SizedBox(height: 24),
           Row(children: [
             Text('Log', style: Theme.of(context).textTheme.titleLarge),

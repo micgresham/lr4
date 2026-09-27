@@ -1,0 +1,100 @@
+# Tests, then builds every platform. Each build is uploaded as a workflow
+# artifact (Actions tab → the run → Artifacts). Windows can only be built on a
+# Windows runner, so this is the way to get a Windows build from a Mac.
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  FLUTTER_VERSION: "3.32.8"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+  android:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter build apk --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lr4-provisioner-android
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+  windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter build windows --release
+      # The .exe needs the DLLs and data folder beside it, so ship the whole folder.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lr4-provisioner-windows
+          path: build/windows/x64/runner/Release/
+
+  macos:
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter build macos --release
+      - run: ditto -c -k --keepParent "build/macos/Build/Products/Release/LR4 Provisioner.app" lr4-provisioner-macos.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lr4-provisioner-macos
+          path: lr4-provisioner-macos.zip
+
+  ios:
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      # Unsigned: proves the project compiles. Installing on an iPhone needs
+      # your own signing (see README).
+      - run: flutter build ios --release --no-codesign
+      - run: ditto -c -k --keepParent build/ios/iphoneos/Runner.app lr4-provisioner-ios-unsigned.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lr4-provisioner-ios-unsigned
+          path: lr4-provisioner-ios-unsigned.zip
