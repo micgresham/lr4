@@ -48,7 +48,9 @@ jobs:
 
   windows:
     needs: test
-    runs-on: windows-latest
+    # Not windows-latest: that image's Visual Studio is newer than this Flutter
+    # version detects, so cmake fell back to a VS 2019 generator and failed.
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -56,6 +58,8 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
+      # Prints the detected Visual Studio, so a toolchain break is visible here.
+      - run: flutter doctor -v
       - run: flutter build windows --release
       # The .exe needs the DLLs and data folder beside it, so ship the whole folder.
       - uses: actions/upload-artifact@v4
